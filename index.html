@@ -132,6 +132,11 @@ function startRating(){var ok=true;DEMO.forEach(function(f){
 var v=document.getElementById("d_"+f[0]).value.trim();if(!v)ok=false;
 SESSION.demographics[f[0]]=v;});
 if(!ok){document.getElementById("demoErr").textContent="Please complete every field.";return;}
+if(POST_URL){var dp=JSON.stringify({type:"participant",sid:SESSION.sid,
+prolific_pid:SESSION.prolific_pid,duration_min:null,n_responses:0,completed:false,
+demographics:SESSION.demographics});
+try{navigator.sendBeacon(POST_URL,new Blob([dp],{type:"text/plain;charset=utf-8"}));}catch(e){
+fetch(POST_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:dp,keepalive:true}).catch(function(){});}}
 show("rate");render();}
 function render(){var it=ITEMS[order[pos]];
 document.getElementById("vig").textContent=it.t;
@@ -170,7 +175,7 @@ SESSION.duration_min=Math.round((SESSION.finished-SESSION.started)/600)/100;
 function done(){document.getElementById("ccode").textContent=COMPLETION_CODE;show("done");}
 if(POST_URL){
  var pp=JSON.stringify({type:"participant",sid:SESSION.sid,prolific_pid:SESSION.prolific_pid,
- duration_min:SESSION.duration_min,n_responses:SESSION.responses.length,
+ duration_min:SESSION.duration_min,n_responses:SESSION.responses.length,completed:true,
  demographics:SESSION.demographics});
  fetch(POST_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
  body:pp,keepalive:true}).then(function(){done();}).catch(function(){
