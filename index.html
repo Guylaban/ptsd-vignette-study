@@ -149,10 +149,17 @@ function next(){var c=val("C"),r=val("R"),i=val("I"),a=val("A");
 if(c===null||r===null||i===null||a===null){
 document.getElementById("rateErr").textContent="Please answer questions 1-4.";return;}
 var it=ITEMS[order[pos]];
-SESSION.responses.push({item_id:it.id,_condition:it.c,_model:it.m,_persona:it.p,
+var resp={item_id:it.id,_condition:it.c,_model:it.m,_persona:it.p,
 clarity:+c,relevance:+r,importance:+i,authorship_ai:+a,
-tell:document.getElementById("tell").value.trim(),rt_ms:Date.now()-tStart});
+tell:document.getElementById("tell").value.trim(),rt_ms:Date.now()-tStart};
+SESSION.responses.push(resp);
 try{localStorage.setItem("ptsd_study_"+SESSION.sid,JSON.stringify(SESSION));}catch(e){}
+if(POST_URL){var rp=JSON.stringify({type:"response",sid:SESSION.sid,
+prolific_pid:SESSION.prolific_pid,item_id:resp.item_id,condition:resp._condition,
+model:resp._model,persona:resp._persona,clarity:resp.clarity,relevance:resp.relevance,
+importance:resp.importance,authorship_ai:resp.authorship_ai,rt_ms:resp.rt_ms,tell:resp.tell});
+try{navigator.sendBeacon(POST_URL,new Blob([rp],{type:"text/plain;charset=utf-8"}));}catch(e){
+fetch(POST_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:rp,keepalive:true}).catch(function(){});}}
 pos++;
 if(pos>=ITEMS.length){finish();return;}
 if(pos===REST_AFTER){document.getElementById("restDone").textContent=REST_AFTER;show("rest");return;}
@@ -160,22 +167,16 @@ render();}
 function resumeFromRest(){show("rate");render();}
 function finish(){SESSION.finished=Date.now();
 SESSION.duration_min=Math.round((SESSION.finished-SESSION.started)/600)/100;
-var payload=JSON.stringify(SESSION);
-// local backup download (always)
-try{var blob=new Blob([JSON.stringify(SESSION,null,1)],{type:"application/json"});
-var a=document.createElement("a");a.href=URL.createObjectURL(blob);
-a.download="ptsd_study_"+(SESSION.prolific_pid||SESSION.sid)+".json";
-document.body.appendChild(a);a.click();a.remove();}catch(e){}
-// send to Google Sheet collector. text/plain => no CORS preflight; keepalive
-// so the request still completes as the page swaps to the thank-you screen.
 function done(){document.getElementById("ccode").textContent=COMPLETION_CODE;show("done");}
 if(POST_URL){
+ var pp=JSON.stringify({type:"participant",sid:SESSION.sid,prolific_pid:SESSION.prolific_pid,
+ duration_min:SESSION.duration_min,n_responses:SESSION.responses.length,
+ demographics:SESSION.demographics});
  fetch(POST_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
- body:payload,keepalive:true}).then(function(){done();}).catch(function(){
-  // network failed: retry once via sendBeacon, then continue regardless
-  try{navigator.sendBeacon(POST_URL,payload);}catch(e){}
+ body:pp,keepalive:true}).then(function(){done();}).catch(function(){
+  try{navigator.sendBeacon(POST_URL,new Blob([pp],{type:"text/plain;charset=utf-8"}));}catch(e){}
   done();});
- setTimeout(done,4000); // safety: never trap the participant on a hung request
+ setTimeout(done,4000);
 }else{done();}
 }
 show("consent");
