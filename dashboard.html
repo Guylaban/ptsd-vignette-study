@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PTSD Study — live progress</title>
+<style>
+body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f6f6fa;color:#1a1a2e;margin:0;padding:28px;line-height:1.5}
+.wrap{max-width:880px;margin:0 auto}
+h1{font-size:1.4rem;margin:0 0 4px}h2{font-size:1.05rem;margin:26px 0 6px}
+.mut{color:#5a5a72;font-size:.9rem}
+.cards{display:flex;flex-wrap:wrap;gap:14px;margin:18px 0}
+.c{background:#fff;border:1px solid #dcdce6;border-radius:12px;padding:18px 22px;min-width:140px;flex:1}
+.v{font-size:1.9rem;font-weight:700;color:#3a5a9a}.l{color:#5a5a72;font-size:.82rem;margin-top:4px}
+table{border-collapse:collapse;background:#fff;border:1px solid #dcdce6;border-radius:8px;overflow:hidden;margin:8px 0;min-width:280px}
+td,th{padding:8px 16px;border-bottom:1px solid #eee;text-align:left}th{background:#eef}
+ul{margin:6px 0}.fail{color:#b00}
+#err{background:#fff4e5;border:1px solid #f0c674;border-radius:8px;padding:12px 14px;color:#7a5b00;display:none}
+.refresh{font-size:.8rem;color:#5a5a72;margin-top:18px}
+</style></head><body><div class="wrap">
+<h1>PTSD Vignette Study — live progress</h1>
+<p class="mut" id="sub">Loading…</p>
+<div id="err"></div>
+<div id="content" style="display:none">
+<div class="cards" id="cards"></div>
+<h2>Ratings by condition</h2>
+<table id="condTable"><tr><th>Condition</th><th>Ratings</th></tr></table>
+<h2>Attention checks</h2>
+<p>Passed all: <b id="apass">0</b> &nbsp;|&nbsp; <span class="fail">Failed: <b id="afail">0</b></span></p>
+<p class="mut">Failed participants — exclude these prolific_pids:</p>
+<ul class="fail" id="failList"><li class="mut">none</li></ul>
+</div>
+<p class="refresh">Auto-refreshes every 30s. Last update: <span id="upd">—</span></p>
+</div>
+<script>
+var SHEET_ID="1Oxs0NfAO3UcopYwzl27LcUPhwQ0rUDeYpFROYSVt-DU";
+var ATTN_EXPECT={
+ ATTN1:{clarity:2,relevance:3,importance:1,authorship_ai:0},
+ ATTN2:{clarity:3,relevance:1,importance:2,authorship_ai:1}};
+
+function csvUrl(sheet){
+ return "https://docs.google.com/spreadsheets/d/"+SHEET_ID+
+  "/gviz/tq?tqx=out:csv&sheet="+encodeURIComponent(sheet)+"&_="+Date.now();}
+
+function parseCSV(t){
+ var rows=[],row=[],f="",q=false;
+ for(var i=0;i<t.length;i++){var ch=t[i];
+  if(q){ if(ch=='"'){ if(t[i+1]=='"'){f+='"';i++;} else q=false; } else f+=ch; }
+  else{ if(ch=='"')q=true;
+   else if(ch==','){row.push(f);f="";}
+   else if(ch=='\n'){row.push(f);rows.push(row);row=[];f="";}
+   else if(ch=='\r'){}
+   else f+=ch; } }
+ if(f.length||row.length){row.push(f);rows.push(row);}
+ return rows;}
+
+function toObjs(rows){
+ if(!rows.length)return [];
+ var h=rows[0],out=[];
+ for(var i=1;i<rows.length;i++){
+  if(rows[i].length==1&&rows[i][0]==="")continue;
+  var o={};for(var c=0;c<h.length;c++)o[h[c]]=rows[i][c];out.push(o);}
+ return out;}
+
+function fetchSheet(name){
+ return fetch(csvUrl(name)).then(function(r){
+  if(!r.ok)throw new Error(name+" "+r.status);return r.text();})
+  .then(function(t){return toObjs(parseCSV(t));});}
+
+function card(label,val){
+ return '<div class="c"><div class="v">'+val+'</div><div class="l">'+label+'</div></div>';}
+
+function render(P,R){
+ var started={},done={},dur=[];
+ P.forEach(function(r){
+  var sid=(r.sid||"").trim();if(sid)started[sid]=1;
+  var comp=String(r.completed||"").toUpperCase();
+  if(comp==="TRUE"){done[sid]=1;var d=parseFloat(r.duration_min);
+   if(!isNaN(d)&&d>0)dur.push(d);}});
+ var nS=Object.keys(started).length,nD=Object.keys(done).length;
+ var avg=dur.length?Math.round(dur.reduce(function(a,b){return a+b;},0)/dur.length*10)/10:0;
+
+ var real=[],attn=[];
+ R.forEach(function(r){
+  if((r.condition||"")==="attention_check")attn.push(r);else real.push(r);});
+ var byCond={},raters={};
+ real.forEach(function(r){var c=r.condition||"?";byCond[c]=(byCond[c]||0)+1;
+  raters[r.sid]=1;});
+
+ var ap={};
+ attn.forEach(function(r){
+  var pid=r.prolific_pid||r.sid||"?";var e=ATTN_EXPECT[r.item_id];
+  var ok=e&&+r.clarity===e.clarity&&+r.relevance===e.relevance
+   &&+r.importance===e.importance&&+r.authorship_ai===e.authorship_ai;
+  if(!ap[pid])ap[pid]={t:0,p:0};ap[pid].t++;if(ok)ap[pid].p++;});
+ var pass=[],fail=[];
+ Object.keys(ap).forEach(function(pid){var a=ap[pid];
+  (a.p===a.t?pass:fail).push(pid+" ("+a.p+"/"+a.t+")");});
+
+ document.getElementById("cards").innerHTML=
+  card("Started",nS)+card("Completed",nD)+
+  card("Completion rate",(nS?Math.round(nD/nS*100):0)+"%")+
+  card("Avg duration (min)",avg||"–")+
+  card("Total real ratings",real.length)+
+  card("Participants w/ ratings",Object.keys(raters).length);
+
+ var ct='<tr><th>Condition</th><th>Ratings</th></tr>';
+ var keys=Object.keys(byCond).sort();
+ ct+=keys.length?keys.map(function(c){return '<tr><td>'+c+'</td><td>'+byCond[c]+'</td></tr>';}).join('')
+  :'<tr><td colspan="2" class="mut">no ratings yet</td></tr>';
+ document.getElementById("condTable").innerHTML=ct;
+
+ document.getElementById("apass").textContent=pass.length;
+ document.getElementById("afail").textContent=fail.length;
+ document.getElementById("failList").innerHTML=fail.length
+  ?fail.map(function(x){return '<li>'+x+'</li>';}).join('')
+  :'<li class="mut">none</li>';
+
+ document.getElementById("sub").textContent=
+  "Reading live data from the response Sheet.";
+ document.getElementById("content").style.display="";
+ document.getElementById("upd").textContent=new Date().toLocaleString();}
+
+function load(){
+ Promise.all([fetchSheet("responses"),fetchSheet("participants")])
+  .then(function(a){document.getElementById("err").style.display="none";
+   render(a[1]||[],a[0]||[]); // a[0]=responses, a[1]=participants; render(P,R)
+  })
+  .catch(function(e){
+   var d=document.getElementById("err");
+   d.style.display="";
+   d.textContent="Could not read the Sheet ("+e.message+
+    "). Make sure the Sheet is shared as 'Anyone with the link → Viewer'.";
+   document.getElementById("sub").textContent="";});}
+
+// initial + every 30s
+load();setInterval(load,30000);
+</script>
+</body></html>
