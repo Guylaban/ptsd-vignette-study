@@ -4,14 +4,26 @@
 <title>PTSD Study — live progress</title>
 <style>
 body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f6f6fa;color:#1a1a2e;margin:0;padding:28px;line-height:1.5}
-.wrap{max-width:880px;margin:0 auto}
-h1{font-size:1.4rem;margin:0 0 4px}h2{font-size:1.05rem;margin:26px 0 6px}
+.wrap{max-width:960px;margin:0 auto}
+h1{font-size:1.4rem;margin:0 0 4px}h2{font-size:1.05rem;margin:26px 0 8px}
 .mut{color:#5a5a72;font-size:.9rem}
 .cards{display:flex;flex-wrap:wrap;gap:14px;margin:18px 0}
-.c{background:#fff;border:1px solid #dcdce6;border-radius:12px;padding:18px 22px;min-width:140px;flex:1}
-.v{font-size:1.9rem;font-weight:700;color:#3a5a9a}.l{color:#5a5a72;font-size:.82rem;margin-top:4px}
-table{border-collapse:collapse;background:#fff;border:1px solid #dcdce6;border-radius:8px;overflow:hidden;margin:8px 0;min-width:280px}
-td,th{padding:8px 16px;border-bottom:1px solid #eee;text-align:left}th{background:#eef}
+.c{background:#fff;border:1px solid #dcdce6;border-radius:12px;padding:16px 20px;min-width:130px;flex:1}
+.v{font-size:1.7rem;font-weight:700;color:#3a5a9a}.l{color:#5a5a72;font-size:.8rem;margin-top:4px}
+.barwrap{background:#fff;border:1px solid #dcdce6;border-radius:12px;padding:18px 22px;margin:8px 0}
+.bar{height:22px;background:#e9e9f2;border-radius:6px;overflow:hidden}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,#3a5a9a,#5b7fc7);width:0;transition:width .4s;border-radius:6px}
+.bignum{font-weight:700;margin-bottom:6px}
+table{border-collapse:collapse;background:#fff;border:1px solid #dcdce6;border-radius:8px;overflow:hidden;margin:8px 0;width:100%}
+td,th{padding:8px 14px;border-bottom:1px solid #eee;text-align:left;font-size:.92rem}
+th{background:#eef}
+.pbar{height:14px;width:160px;background:#e9e9f2;border-radius:5px;overflow:hidden;display:inline-block;vertical-align:middle}
+.pbar>i{display:block;height:100%;background:#3a5a9a;border-radius:5px}
+.pbar.doneb>i{background:#2e9e5b}
+.tag{font-size:.78rem;padding:2px 8px;border-radius:10px;font-weight:600}
+.t-done{background:#e3f5ea;color:#1d7a45}
+.t-prog{background:#e8effb;color:#2c4f93}
+.t-fail{background:#fde8e8;color:#b00}
 ul{margin:6px 0}.fail{color:#b00}
 #err{background:#fff4e5;border:1px solid #f0c674;border-radius:8px;padding:12px 14px;color:#7a5b00;display:none}
 .refresh{font-size:.8rem;color:#5a5a72;margin-top:18px}
@@ -20,9 +32,25 @@ ul{margin:6px 0}.fail{color:#b00}
 <p class="mut" id="sub">Loading…</p>
 <div id="err"></div>
 <div id="content" style="display:none">
+
+<div class="barwrap">
+<div class="bignum"><span id="goalDone">0</span> / <span id="goalTarget">0</span> completed
+ &nbsp;<span class="mut">(target sample)</span></div>
+<div class="bar"><i id="goalFill"></i></div>
+</div>
+
 <div class="cards" id="cards"></div>
+
+<h2>Participants (live)</h2>
+<table id="ptable"><tr><th>PID</th><th>Progress</th><th>Items</th>
+<th>Status</th><th>Time (min)</th><th>Attn</th></tr></table>
+
+<h2>Timing</h2>
+<table id="timeTable"><tr><th>Metric</th><th>Value</th></tr></table>
+
 <h2>Ratings by condition</h2>
 <table id="condTable"><tr><th>Condition</th><th>Ratings</th></tr></table>
+
 <h2>Attention checks</h2>
 <p>Passed all: <b id="apass">0</b> &nbsp;|&nbsp; <span class="fail">Failed: <b id="afail">0</b></span></p>
 <p class="mut">Failed participants — exclude these prolific_pids:</p>
@@ -32,6 +60,8 @@ ul{margin:6px 0}.fail{color:#b00}
 </div>
 <script>
 var SHEET_ID="1Oxs0NfAO3UcopYwzl27LcUPhwQ0rUDeYpFROYSVt-DU";
+var TOTAL_ITEMS=35;   // 33 vignettes + 2 attention checks
+var TARGET_N=30;      // target number of completed participants (overall bar)
 var ATTN_EXPECT={
  ATTN1:{clarity:2,relevance:3,importance:1,authorship_ai:0},
  ATTN2:{clarity:3,relevance:1,importance:2,authorship_ai:1}};
@@ -68,22 +98,33 @@ function fetchSheet(name){
 function card(label,val){
  return '<div class="c"><div class="v">'+val+'</div><div class="l">'+label+'</div></div>';}
 
-function render(P,R){
- var started={},done={},dur=[];
- P.forEach(function(r){
-  var sid=(r.sid||"").trim();if(sid)started[sid]=1;
-  var comp=String(r.completed||"").toUpperCase();
-  if(comp==="TRUE"){done[sid]=1;var d=parseFloat(r.duration_min);
-   if(!isNaN(d)&&d>0)dur.push(d);}});
- var nS=Object.keys(started).length,nD=Object.keys(done).length;
- var avg=dur.length?Math.round(dur.reduce(function(a,b){return a+b;},0)/dur.length*10)/10:0;
+function ts(v){var d=new Date(v);return isNaN(d)?0:d.getTime();}
+function r1(x){return Math.round(x*10)/10;}
+function median(a){if(!a.length)return 0;var s=a.slice().sort(function(x,y){return x-y;});
+ var m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2;}
 
- var real=[],attn=[];
+function render(P,R){
+ // participants sheet: completed flag + authoritative duration
+ var doneSid={},durBySid={},started={};
+ P.forEach(function(r){
+  var sid=(r.sid||"").trim();if(!sid)return;
+  started[sid]=1;
+  if(String(r.completed||"").toUpperCase()==="TRUE"){
+   doneSid[sid]=1;var d=parseFloat(r.duration_min);
+   if(!isNaN(d)&&d>0)durBySid[sid]=d;}});
+
+ // responses: per-participant counts, timing, condition tallies, attention
+ var real=[],attn=[],byCond={},raters={},perSid={};
  R.forEach(function(r){
-  if((r.condition||"")==="attention_check")attn.push(r);else real.push(r);});
- var byCond={},raters={};
- real.forEach(function(r){var c=r.condition||"?";byCond[c]=(byCond[c]||0)+1;
-  raters[r.sid]=1;});
+  var sid=(r.sid||"").trim();
+  var pid=(r.prolific_pid||sid||"?");
+  if(!perSid[sid])perSid[sid]={pid:pid,n:0,first:0,last:0};
+  perSid[sid].n++;
+  var t=ts(r.timestamp);
+  if(t){if(!perSid[sid].first||t<perSid[sid].first)perSid[sid].first=t;
+   if(t>perSid[sid].last)perSid[sid].last=t;}
+  if((r.condition||"")==="attention_check")attn.push(r);
+  else{real.push(r);var c=r.condition||"?";byCond[c]=(byCond[c]||0)+1;raters[sid]=1;}});
 
  var ap={};
  attn.forEach(function(r){
@@ -91,10 +132,16 @@ function render(P,R){
   var ok=e&&+r.clarity===e.clarity&&+r.relevance===e.relevance
    &&+r.importance===e.importance&&+r.authorship_ai===e.authorship_ai;
   if(!ap[pid])ap[pid]={t:0,p:0};ap[pid].t++;if(ok)ap[pid].p++;});
- var pass=[],fail=[];
+ var passN=0,failN=0,failPids=[];
  Object.keys(ap).forEach(function(pid){var a=ap[pid];
-  (a.p===a.t?pass:fail).push(pid+" ("+a.p+"/"+a.t+")");});
+  if(a.p===a.t)passN++;else{failN++;failPids.push(pid+" ("+a.p+"/"+a.t+")");}});
 
+ var nS=Object.keys(started).length||Object.keys(perSid).length;
+ var nD=Object.keys(doneSid).length;
+ var durs=Object.keys(durBySid).map(function(k){return durBySid[k];});
+ var avg=durs.length?r1(durs.reduce(function(a,b){return a+b;},0)/durs.length):0;
+
+ // cards
  document.getElementById("cards").innerHTML=
   card("Started",nS)+card("Completed",nD)+
   card("Completion rate",(nS?Math.round(nD/nS*100):0)+"%")+
@@ -102,20 +149,72 @@ function render(P,R){
   card("Total real ratings",real.length)+
   card("Participants w/ ratings",Object.keys(raters).length);
 
- var ct='<tr><th>Condition</th><th>Ratings</th></tr>';
- var keys=Object.keys(byCond).sort();
- ct+=keys.length?keys.map(function(c){return '<tr><td>'+c+'</td><td>'+byCond[c]+'</td></tr>';}).join('')
-  :'<tr><td colspan="2" class="mut">no ratings yet</td></tr>';
- document.getElementById("condTable").innerHTML=ct;
+ // overall progress bar toward target
+ document.getElementById("goalDone").textContent=nD;
+ document.getElementById("goalTarget").textContent=TARGET_N;
+ document.getElementById("goalFill").style.width=
+  Math.min(100,Math.round(nD/TARGET_N*100))+"%";
 
- document.getElementById("apass").textContent=pass.length;
- document.getElementById("afail").textContent=fail.length;
- document.getElementById("failList").innerHTML=fail.length
-  ?fail.map(function(x){return '<li>'+x+'</li>';}).join('')
+ // per-participant rows
+ var rows=Object.keys(perSid).map(function(sid){
+  var ps=perSid[sid];
+  var done=!!doneSid[sid];
+  var n=Math.min(ps.n,TOTAL_ITEMS);
+  var pct=Math.round(n/TOTAL_ITEMS*100);
+  var fpid=ps.pid;
+  var fa=ap[fpid];
+  var attnTxt=fa?(fa.p+"/"+fa.t):"–";
+  var attnBad=fa&&fa.p<fa.t;
+  var mins;
+  if(done&&durBySid[sid]!=null)mins=r1(durBySid[sid]);
+  else if(ps.first&&ps.last)mins=r1((ps.last-ps.first)/60000);
+  else mins=0;
+  var status=done?'<span class="tag t-done">Completed</span>'
+   :'<span class="tag t-prog">In progress</span>';
+  if(attnBad)status+=' <span class="tag t-fail">Attn</span>';
+  return {done:done,pct:pct,html:
+   '<tr><td>'+fpid+'</td>'+
+   '<td><span class="pbar'+(done?' doneb':'')+'"><i style="width:'+pct+'%"></i></span></td>'+
+   '<td>'+ps.n+'/'+TOTAL_ITEMS+'</td>'+
+   '<td>'+status+'</td>'+
+   '<td>'+(mins||'–')+'</td>'+
+   '<td>'+attnTxt+'</td></tr>'};
+ });
+ // in-progress first, then by progress desc
+ rows.sort(function(a,b){return (a.done-b.done)||(b.pct-a.pct);});
+ var pt='<tr><th>PID</th><th>Progress</th><th>Items</th><th>Status</th>'+
+  '<th>Time (min)</th><th>Attn</th></tr>'+
+  (rows.length?rows.map(function(r){return r.html;}).join('')
+   :'<tr><td colspan="6" class="mut">no participants yet</td></tr>');
+ document.getElementById("ptable").innerHTML=pt;
+
+ // timing aggregates (completed only)
+ var tt='<tr><th>Metric</th><th>Value</th></tr>';
+ if(durs.length){
+  tt+='<tr><td>Completed participants</td><td>'+durs.length+'</td></tr>'+
+   '<tr><td>Average duration</td><td>'+avg+' min</td></tr>'+
+   '<tr><td>Median duration</td><td>'+r1(median(durs))+' min</td></tr>'+
+   '<tr><td>Fastest</td><td>'+r1(Math.min.apply(null,durs))+' min</td></tr>'+
+   '<tr><td>Slowest</td><td>'+r1(Math.max.apply(null,durs))+' min</td></tr>'+
+   '<tr><td>Avg time per item</td><td>'+r1(avg/TOTAL_ITEMS)+' min</td></tr>';
+ }else tt+='<tr><td colspan="2" class="mut">no completed participants yet</td></tr>';
+ document.getElementById("timeTable").innerHTML=tt;
+
+ // condition table
+ var keys=Object.keys(byCond).sort();
+ document.getElementById("condTable").innerHTML=
+  '<tr><th>Condition</th><th>Ratings</th></tr>'+
+  (keys.length?keys.map(function(c){return '<tr><td>'+c+'</td><td>'+byCond[c]+'</td></tr>';}).join('')
+   :'<tr><td colspan="2" class="mut">no ratings yet</td></tr>');
+
+ // attention
+ document.getElementById("apass").textContent=passN;
+ document.getElementById("afail").textContent=failN;
+ document.getElementById("failList").innerHTML=failPids.length
+  ?failPids.map(function(x){return '<li>'+x+'</li>';}).join('')
   :'<li class="mut">none</li>';
 
- document.getElementById("sub").textContent=
-  "Reading live data from the response Sheet.";
+ document.getElementById("sub").textContent="Reading live data from the response Sheet.";
  document.getElementById("content").style.display="";
  document.getElementById("upd").textContent=new Date().toLocaleString();}
 
@@ -125,13 +224,11 @@ function load(){
    render(a[1]||[],a[0]||[]); // a[0]=responses, a[1]=participants; render(P,R)
   })
   .catch(function(e){
-   var d=document.getElementById("err");
-   d.style.display="";
+   var d=document.getElementById("err");d.style.display="";
    d.textContent="Could not read the Sheet ("+e.message+
-    "). Make sure the Sheet is shared as 'Anyone with the link → Viewer'.";
+    "). Ensure it is shared as 'Anyone with the link → Viewer'.";
    document.getElementById("sub").textContent="";});}
 
-// initial + every 30s
 load();setInterval(load,30000);
 </script>
 </body></html>
